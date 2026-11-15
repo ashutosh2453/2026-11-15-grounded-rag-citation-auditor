@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Citation Auditor</title>
+<style>
+  :root { --bg:#f7f7f5; --panel:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e3e3de;
+          --ok:#1f7a4d; --okbg:#e3f4ea; --warn:#8a5a00; --warnbg:#fbf0d9; --bad:#a32020; --badbg:#fbe4e4; --accent:#2f5bd3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141413; --panel:#1e1e1c; --ink:#ececea; --muted:#9a9a94; --line:#33332f;
+            --ok:#6fd3a0; --okbg:#173527; --warn:#f0c36a; --warnbg:#3a2f14; --bad:#f19a9a; --badbg:#3d1c1c; --accent:#8aa8ff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; display:grid; gap:16px; grid-template-columns:1fr; }
+  @media (min-width: 900px) { main { grid-template-columns: 360px 1fr; } }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:0 0 10px; }
+  header { grid-column:1/-1; } header p { margin:0; color:var(--muted); }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  input, textarea, button { font:inherit; color:inherit; }
+  input, textarea { width:100%; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; }
+  textarea { min-height:140px; resize:vertical; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:8px 14px; cursor:pointer; margin-top:8px; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .docs { list-style:none; padding:0; margin:12px 0 0; font-size:14px; }
+  .docs li { display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-top:1px solid var(--line); }
+  .docs button { background:none; color:var(--bad); padding:0; margin:0; }
+  .row { display:flex; gap:8px; align-items:flex-end; } .row input { flex:1; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; font-weight:600; }
+  .supported { background:var(--okbg); color:var(--ok); }
+  .partially_supported, .uncited, .partially_grounded { background:var(--warnbg); color:var(--warn); }
+  .unsupported, .misattributed, .ungrounded { background:var(--badbg); color:var(--bad); }
+  .grounded { background:var(--okbg); color:var(--ok); }
+  .non_claim, .abstained, .no_claims { background:var(--line); color:var(--muted); }
+  .claim { padding:10px 0; border-top:1px solid var(--line); }
+  .claim .ev { color:var(--muted); font-size:13px; margin-top:4px; }
+  .issues { color:var(--bad); font-size:13px; }
+  .metrics { display:flex; gap:16px; flex-wrap:wrap; margin:8px 0; color:var(--muted); font-size:14px; }
+  .metrics b { color:var(--ink); }
+  .src { font-size:13px; border-top:1px solid var(--line); padding:8px 0; }
+  .answer { font-size:16px; margin:8px 0 12px; }
+  .err { color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Grounded RAG Citation Auditor</h1>
+    <p>Ask questions over your documents. Every sentence of the answer is checked against the source it cites.</p>
+  </header>
+
+  <section>
+    <h2>Add a document</h2>
+    <input id="title" placeholder="Title">
+    <textarea id="text" placeholder="Paste plain text or Markdown..." style="margin-top:8px"></textarea>
+    <button id="addBtn">Add document</button>
+    <div style="margin-top:12px"><input type="file" id="file" accept=".txt,.md,.markdown"></div>
+    <div id="docMsg" class="err"></div>
+    <ul class="docs" id="docs"></ul>
+  </section>
+
+  <section>
+    <h2>Ask</h2>
+    <div class="row">
+      <input id="q" placeholder="e.g. How long is the warranty?">
+      <button id="askBtn">Ask</button>
+    </div>
+    <div id="result"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const label = (v) => v.replace(/_/g, " ");
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  if (res.status === 204) return null;
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || res.statusText));
+  return body;
+}
+
+async function loadDocs() {
+  const docs = await api("/documents");
+  $("docs").innerHTML = docs.length ? docs.map(d =>
+    `<li><span>${esc(d.title)} <span style="color:var(--muted)">(${d.chunks} chunks)</span></span>
+     <button data-id="${d.id}" aria-label="Delete ${esc(d.title)}">Delete</button></li>`).join("")
+    : `<li style="color:var(--muted)">No documents yet.</li>`;
+}
+
+$("docs").addEventListener("click", async (e) => {
+  const id = e.target.dataset.id; if (!id) return;
+  await api(`/documents/${id}`, { method: "DELETE" }); loadDocs();
+});
+
+$("addBtn").onclick = async () => {
+  $("docMsg").textContent = "";
+  try {
+    await api("/documents", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: $("title").value || "Untitled", text: $("text").value }) });
+    $("title").value = $("text").value = ""; loadDocs();
+  } catch (err) { $("docMsg").textContent = err.message; }
+};
+
+$("file").onchange = async () => {
+  const f = $("file").files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  $("docMsg").textContent = "";
+  try { await api("/documents/upload", { method: "POST", body: fd }); loadDocs(); }
+  catch (err) { $("docMsg").textContent = err.message; }
+  $("file").value = "";
+};
+
+async function ask() {
+  const question = $("q").value.trim(); if (!question) return;
+  $("askBtn").disabled = true; $("result").innerHTML = "<p>Thinking...</p>";
+  try {
+    const r = await api("/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+    const a = r.audit;
+    $("result").innerHTML = `
+      <p class="answer">${esc(r.answer)}</p>
+      <div class="metrics">
+        <span class="badge ${a.overall}">${label(a.overall)}</span>
+        <span>groundedness <b>${(a.groundedness * 100).toFixed(0)}%</b></span>
+        <span>citation accuracy <b>${a.citation_accuracy == null ? "n/a" : (a.citation_accuracy * 100).toFixed(0) + "%"}</b></span>
+        <span>${esc(r.model)} &middot; ${r.latency_ms} ms</span>
+      </div>
+      ${r.warnings.map(w => `<p class="issues">${esc(w)}</p>`).join("")}
+      <h2 style="margin-top:16px">Claim audit</h2>
+      ${a.claims.map(c => `<div class="claim">
+          <span class="badge ${c.verdict}">${label(c.verdict)}</span> <b>${c.support_score.toFixed(2)}</b>
+          ${esc(c.claim)} ${c.citations.map(n => `[${n}]`).join("")}
+          ${c.best_evidence ? `<div class="ev">Evidence [${c.best_source}]: ${esc(c.best_evidence)}</div>` : ""}
+          ${c.suggested_source ? `<div class="ev">Suggested citation: [${c.suggested_source}]</div>` : ""}
+          ${c.issues.length ? `<div class="issues">${c.issues.map(esc).join("; ")}</div>` : ""}
+        </div>`).join("")}
+      <h2 style="margin-top:16px">Retrieved sources</h2>
+      ${r.sources.map(s => `<div class="src"><b>[${s.n}] ${esc(s.document_title)}</b>
+          <span style="color:var(--muted)">rrf ${s.score} &middot; bm25 ${s.bm25} &middot; cos ${s.cosine}</span><br>${esc(s.text)}</div>`).join("")
+        || "<p style='color:var(--muted)'>No matching sources.</p>"}`;
+  } catch (err) { $("result").innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+  $("askBtn").disabled = false;
+}
+$("askBtn").onclick = ask;
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+loadDocs();
+</script>
+</body>
+</html>
