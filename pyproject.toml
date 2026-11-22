@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+nli = ["sentence-transformers>=3.0"]
 
 [project.scripts]
 rag-auditor = "rag_auditor.cli:main"

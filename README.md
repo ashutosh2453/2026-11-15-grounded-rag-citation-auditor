@@ -166,7 +166,32 @@ Error handling: validation errors return `422`, unsupported upload types `415`, 
 pytest -q
 ```
 
-34 tests cover tokenisation, chunking (including Markdown headings), retrieval ranking, MMR generation, every auditor verdict (numeric hallucination, negation flip, misattribution, uncited, invalid citation, abstention, multi-source), the SQLite cascade, every API endpoint and error path, LLM fallback, and a deliberately hallucinating generator that the audit must catch.
+39 tests (+1 opt-in real-model NLI test) cover tokenisation, chunking (including Markdown headings), retrieval ranking, MMR generation, every auditor verdict (numeric hallucination, negation flip, misattribution, uncited, invalid citation, abstention, multi-source), the SQLite cascade, every API endpoint and error path, LLM fallback, and a deliberately hallucinating generator that the audit must catch.
+
+## Optional NLI verification
+
+The lexical auditor is exact about numbers, negation and attribution, but word overlap can't recognise a faithful paraphrase, and it misses contradictions that use no negation words. With `RAG_NLI=1`, an NLI cross-encoder (`cross-encoder/nli-deberta-v3-xsmall`, about 280 MB, CPU-friendly) also scores the most relevant evidence sentences against each cited claim:
+
+- **Paraphrases:** entailment of 0.5 or more raises the support score, but only when no exact lexical check (numbers, negation) fired.
+- **Contradictions:** a contradiction of 0.7 or more from the most relevant evidence sentence marks the claim unsupported and adds an issue.
+- **Reporting:** `entailment` and `contradiction` probabilities are included per claim.
+
+Measured with the real model (`NLI_MODEL_TESTS=1 pytest`):
+
+| Claim vs source | Lexical only | + NLI |
+|---|---|---|
+| "Unopened items can be sent back for a refund inside a week" vs "may return unopened products within 7 days for a full refund" | unsupported (0.29) | **supported** (entailment 0.99) |
+| "Standard shipping is faster than express shipping" | partially supported (0.64) | **unsupported** (contradiction 0.73) |
+| "The warranty covers water damage" vs "does not cover water damage" | partially supported (0.50) | **unsupported** (contradiction 0.998) |
+| "Express shipping arrives within one business day" | supported | supported |
+| "The robot has a lithium battery" (not in source) | unsupported | unsupported |
+
+Contradictions are only taken from the evidence sentence(s) most about the claim. In testing, an unrelated sentence ("standard shipping takes 3–5 days") produced a spurious contradiction score of 0.72 against a correct claim about express shipping.
+
+```bash
+pip install -e ".[nli]"
+RAG_NLI=1 uvicorn rag_auditor.api:app
+```
 
 ## Limitations
 
@@ -174,7 +199,6 @@ The auditor is lexical. It catches number, negation, attribution and coverage er
 
 ## Future enhancements
 
-- NLI-based entailment scoring (e.g. a small DeBERTa MNLI model) alongside the lexical scores
 - Dense embeddings plus a vector store for semantic retrieval, fused into the existing RRF
 - PDF and HTML ingestion
 - Batch evaluation mode: run a question set and export a groundedness leaderboard across models
