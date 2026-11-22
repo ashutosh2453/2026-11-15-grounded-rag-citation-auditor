@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .generation import generator_from_env
+from .nli import nli_from_env
 from .service import RAGService, ValidationError
 from .store import DocumentStore
 
@@ -30,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     p_aud.add_argument("sources", nargs="+", type=Path)
 
     args = parser.parse_args(argv)
-    service = RAGService(DocumentStore(args.db), generator_from_env())
+    service = RAGService(DocumentStore(args.db), generator_from_env(), nli=nli_from_env())
     try:
         if args.cmd == "ingest":
             files = [f for p in args.paths for f in (sorted(p.rglob("*")) if p.is_dir() else [p])

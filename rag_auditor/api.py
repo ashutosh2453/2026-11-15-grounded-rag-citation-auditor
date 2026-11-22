@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .generation import Generator, generator_from_env
+from .nli import nli_from_env
 from .service import RAGService, ValidationError
 from .store import DocumentStore
 
@@ -52,7 +53,7 @@ def create_app(db_path: str | None = None, generator: Generator | None = None) -
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         store = DocumentStore(db_path or os.getenv("RAG_DB_PATH", "data/rag.db"))
-        app.state.service = RAGService(store, generator or generator_from_env())
+        app.state.service = RAGService(store, generator or generator_from_env(), nli=nli_from_env())
         yield
         store.close()
 

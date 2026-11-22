@@ -19,6 +19,20 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
+  nli-model:
+    # Downloads the ~280 MB NLI cross-encoder and checks paraphrase/contradiction handling.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,nli]"
+      - run: pytest -q tests/test_nli.py
+        env:
+          NLI_MODEL_TESTS: "1"
+
   docker:
     runs-on: ubuntu-latest
     needs: test

@@ -34,8 +34,9 @@ class AskResult:
 
 class RAGService:
     def __init__(self, store: DocumentStore, generator: Generator | None = None,
-                 retriever: HybridRetriever | None = None, chunk_words: int = 120) -> None:
+                 retriever: HybridRetriever | None = None, chunk_words: int = 120, nli=None) -> None:
         self.store = store
+        self.nli = nli  # optional rag_auditor.nli.NLIScorer
         self.generator = generator or ExtractiveGenerator()
         self.fallback = ExtractiveGenerator()
         self.retriever = retriever or HybridRetriever()
@@ -85,16 +86,15 @@ class RAGService:
             log.warning("generator failed, falling back to extractive: %s", exc)
             warnings.append(f"{exc}; used extractive fallback")
             generation = self.fallback.generate(question, contexts)
-        report = audit_answer(generation.text, [c.chunk.text for c in contexts])
+        report = audit_answer(generation.text, [c.chunk.text for c in contexts], nli=self.nli)
         if report.overall == "ungrounded":
             warnings.append("answer failed the groundedness audit - treat with caution")
         latency = (time.perf_counter() - started) * 1000
         return AskResult(question, generation.text, generation.model, contexts, report, round(latency, 2), warnings)
 
-    @staticmethod
-    def audit(answer: str, sources: list[str]) -> AuditReport:
+    def audit(self, answer: str, sources: list[str]) -> AuditReport:
         if not answer.strip():
             raise ValidationError("answer must not be empty")
         if not sources:
             raise ValidationError("at least one source is required")
-        return audit_answer(answer, sources)
+        return audit_answer(answer, sources, nli=self.nli)
