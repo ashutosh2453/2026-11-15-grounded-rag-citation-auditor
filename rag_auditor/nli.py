@@ -15,8 +15,6 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
-import numpy as np
-
 DEFAULT_NLI_MODEL = "cross-encoder/nli-deberta-v3-xsmall"
 
 
@@ -40,6 +38,8 @@ class CrossEncoderNLI:
     def score(self, pairs: list[tuple[str, str]]) -> list[dict[str, float]]:
         if not pairs:
             return []
+        import numpy as np  # only needed with the optional [nli] extra
+
         logits = np.asarray(self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False), dtype=np.float64)
         logits = logits.reshape(len(pairs), -1)
         probs = np.exp(logits - logits.max(axis=1, keepdims=True))
